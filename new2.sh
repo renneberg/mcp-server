@@ -1,0 +1,1 @@
+npx @modelcontextprotocol/inspector java -jar build/libs/mcp-server-0.1.0-all.jar --stdio
