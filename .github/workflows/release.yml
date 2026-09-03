@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-release:
-    name: Build Linux/macOS JAR & Debian Package
+    name: Build Universal JAR & Debian Package
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -43,36 +43,47 @@ jobs:
             --app-version ${{ steps.get_version.outputs.VERSION }} \
             --dest dist
 
-      - name: Upload artifacts
+      - name: Upload Linux/Universal artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-artifacts
+          name: universal-artifacts
           path: |
             build/libs/*-all.jar
             dist/*.deb
 
   build-windows:
-    name: Build Windows Native Executable (GraalVM)
+    name: Build Windows Executable & JAR
     runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up GraalVM
+      - name: Set up JDK & GraalVM
         uses: graalvm/setup-graalvm@v1
         with:
           java-version: '21'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Native Executable
+      - name: Build Windows Shadow JAR
+        run: ./gradlew shadowJar
+
+      - name: Prepare Windows JAR Artifact
+        run: |
+          mkdir dist-windows
+          copy build\libs\*-all.jar dist-windows\mcp-server-windows.jar
+
+      - name: Build Native Executable (GraalVM)
+        continue-on-error: true
         run: ./gradlew nativeCompile
 
-      - name: Upload Windows Executable
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-executable
-          path: build/native/nativeCompile/*.exe
+          name: windows-artifacts
+          path: |
+            dist-windows\*.jar
+            build\native\nativeCompile\*.exe
 
   release:
     name: Create GitHub Release & Upload Assets
@@ -88,7 +99,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            linux-artifacts/**/*
-            windows-executable/**/*
+            universal-artifacts/**/*
+            windows-artifacts/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
