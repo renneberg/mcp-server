@@ -30,7 +30,12 @@ bin/
 
 ### Mac OS ###
 .DS_Store
-# Project exclude paths
+
+# Project exclude paths & Build artifacts / Logs
 /.gradle/
 /build/
 /build/classes/kotlin/main/
+/libs/
+*.jar
+mcp_debug.log
+dist/
