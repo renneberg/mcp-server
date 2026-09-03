@@ -2,6 +2,7 @@ import java.io.File
 
 class FileParser(private val languageParser: LanguageParser) {
     private val MAX_CHARS_PER_CHUNK = 16000 // Roughly 4000 tokens (assuming ~4 chars per token)
+    private val IGNORED_DIRS = setOf(".git", "build", ".gradle", "node_modules", ".idea", "out", "bin", ".cxx", ".externalNativeBuild", "captures", ".kotlin")
 
     fun parseFile(path: String, mode: String): List<String> {
         val file = File(path)
@@ -28,15 +29,27 @@ class FileParser(private val languageParser: LanguageParser) {
 
     fun searchText(query: String, rootPath: String): List<String> {
         val results = mutableListOf<String>()
-        File(rootPath).walk().filter { it.isFile && (it.extension == "kt" || it.extension == "java") }.forEach { file ->
-            val lines = try { file.readLines() } catch (e: Exception) { emptyList() }
-            lines.forEachIndexed { index, line ->
-                if (line.contains(query, ignoreCase = true)) {
-                    val result = "${file.path}:${index + 1}: $line"
-                    results.add(result.take(1000)) // Safety: limit line length in search
-                }
+        val root = File(rootPath)
+        if (!root.exists()) return emptyList()
+
+        root.walkTopDown()
+            .onEnter { dir -> !IGNORED_DIRS.contains(dir.name.lowercase()) }
+            .filter { file -> 
+                file.isFile && listOf("kt", "java", "sq", "xml", "json", "gradle", "properties", "md").contains(file.extension.lowercase()) 
             }
-        }
-        return results.take(20) // Limit total search results
+            .forEach { file ->
+                try {
+                    file.useLines { lines ->
+                        lines.forEachIndexed { index, line ->
+                            if (line.contains(query, ignoreCase = true)) {
+                                val result = "${file.path}:${index + 1}: ${line.trim()}"
+                                results.add(result.take(1000))
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+                if (results.size >= 50) return results.take(50)
+            }
+        return results.take(50)
     }
 }
