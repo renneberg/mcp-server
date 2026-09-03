@@ -10,7 +10,7 @@ A Model Context Protocol (MCP) server written in Kotlin, providing advanced code
 - **Read-Only Database Querying (`query_database`)**:
   - Execute read-only SQL queries (`SELECT`, `PRAGMA`, `EXPLAIN`, `WITH`, `SHOW`, `DESCRIBE`) against **SQLite**, **MySQL**, and **MariaDB** safely (modification queries like `INSERT`, `UPDATE`, `DELETE`, `DROP` are strictly blocked).
   - **Internal Connection Management**: Credentials (`DB_USER`, `DB_PASSWORD`) and connection URLs are handled automatically via environment variables. You only need to pass the query string (e.g. `query: "SELECT * FROM tmp__fulldata LIMIT 20"`).
-  - **Automatic Multi-Database Scanning**: If no database name is specified, the server automatically scans `INFORMATION_SCHEMA.TABLES` across all MySQL/MariaDB databases to locate the table. If a table name exists in multiple databases, it reports a clear disambiguation error.
+  - **Multi-Database Support & Automatic Table Resolution**: Automatically scans across multiple MySQL/MariaDB databases (`INFORMATION_SCHEMA.TABLES`) to locate tables. Supports queries and `JOIN`s across multiple databases (e.g., `citycards.tmp__fulldata` and `cc_verwaltung.v_user`) even if database prefixes are omitted in the query. If a table name exists in multiple databases, it reports a clear disambiguation error.
   - **Detailed Error Reporting**: SQL server errors return precise diagnostic info including `SQLState`, `ErrorCode`, and error messages.
 - **Web Fetcher**: Fetch and clean web content.
 
