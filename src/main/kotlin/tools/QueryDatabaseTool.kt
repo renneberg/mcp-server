@@ -54,10 +54,57 @@ class QueryDatabaseTool(
         }
     }
 
-    private fun extractTableName(query: String): String? {
-        val regex = "(?i)\\b(?:FROM|JOIN)\\s+([`\"]?)([a-zA-Z0-9_]+)\\1".toRegex()
-        val match = regex.find(query)
-        return match?.groupValues?.getOrNull(2)
+    private fun extractAllTableNames(query: String): List<String> {
+        val tableRegex = "(?i)\\b(?:FROM|JOIN|,)\\s+(?:([`\"]?[a-zA-Z0-9_]+[`\"]?)\\s*\\.\\s*)?([`\"]?)([a-zA-Z0-9_]+)\\2".toRegex()
+        val matches = tableRegex.findAll(query)
+        val tables = mutableSetOf<String>()
+        for (match in matches) {
+            val dbGroup = match.groups[1]?.value
+            val tableGroup = match.groups[3]?.value
+            if (tableGroup != null && dbGroup.isNullOrBlank()) {
+                val cleanTable = tableGroup.replace("`", "").replace("\"", "")
+                // Filter out common SQL keywords that might falsely match
+                if (!listOf("SELECT", "WHERE", "GROUP", "ORDER", "LIMIT", "AS", "ON", "USING").contains(cleanTable.uppercase())) {
+                    tables.add(cleanTable)
+                }
+            }
+        }
+        return tables.toList()
+    }
+
+    private fun resolveQueryTables(conn: java.sql.Connection, query: String): String {
+        val tableNames = extractAllTableNames(query)
+        if (tableNames.isEmpty()) return query
+
+        var resolvedQuery = query
+        val stmt = conn.createStatement()
+
+        for (tableName in tableNames) {
+            // Skip if query already references db.tableName
+            if (resolvedQuery.contains(Regex("(?i)\\b[a-zA-Z0-9_]+\\s*\\.\\s*`?$tableName`?\\b"))) continue
+
+            val rs = stmt.executeQuery("SELECT TABLE_SCHEMA FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = '$tableName' AND TABLE_SCHEMA NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')")
+            val schemas = mutableListOf<String>()
+            while (rs.next()) {
+                schemas.add(rs.getString(1))
+            }
+            rs.close()
+
+            when {
+                schemas.size == 1 -> {
+                    val db = schemas[0]
+                    val pattern = "(?i)\\b(FROM|JOIN|,)\\s+(`?)$tableName\\2\\b".toRegex()
+                    resolvedQuery = pattern.replace(resolvedQuery) { match ->
+                        "${match.groupValues[1]} `$db`.`$tableName`"
+                    }
+                }
+                schemas.size > 1 -> {
+                    throw IllegalStateException("Table '$tableName' exists in multiple databases (${schemas.joinToString(", ")}). Please qualify with the database name (e.g., databasename.$tableName).")
+                }
+            }
+        }
+        stmt.close()
+        return resolvedQuery
     }
 
     fun handle(arguments: Map<String, JsonElement>?): CallToolResult {
@@ -65,7 +112,7 @@ class QueryDatabaseTool(
             return CallToolResult(content = listOf(TextContent("Error: Missing arguments")), isError = true)
         }
 
-        val query = arguments["query"]?.jsonPrimitive?.content 
+        val rawQuery = arguments["query"]?.jsonPrimitive?.content 
             ?: return CallToolResult(content = listOf(TextContent("Error: Missing 'query' argument")), isError = true)
 
         val urlArg = arguments["url"]?.jsonPrimitive?.content ?: getDefaultJdbcUrl()
@@ -73,7 +120,7 @@ class QueryDatabaseTool(
         val password = arguments["password"]?.jsonPrimitive?.content ?: System.getenv("DB_PASSWORD")
 
         // Safety check: ensure read-only
-        val trimmedQuery = query.trim().uppercase()
+        val trimmedQuery = rawQuery.trim().uppercase()
         val allowedPrefixes = listOf("SELECT", "PRAGMA", "EXPLAIN", "WITH", "SHOW", "DESCRIBE")
         val isAllowed = allowedPrefixes.any { trimmedQuery.startsWith(it) }
         
@@ -113,38 +160,18 @@ class QueryDatabaseTool(
                     conn.isReadOnly = true
                 } catch (_: Exception) {}
 
-                // Automatically scan databases for table name if no specific database was provided in URL
-                if (jdbcUrl.contains("mysql") || jdbcUrl.contains("mariadb")) {
-                    val hasSpecificDb = jdbcUrl.substringAfterLast("/").isNotBlank() && !jdbcUrl.endsWith("/")
-                    if (!hasSpecificDb) {
-                        val tableName = extractTableName(query)
-                        if (tableName != null) {
-                            try {
-                                val stmt = conn.createStatement()
-                                val rs = stmt.executeQuery("SELECT TABLE_SCHEMA FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = '$tableName' AND TABLE_SCHEMA NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')")
-                                val schemas = mutableListOf<String>()
-                                while (rs.next()) {
-                                    schemas.add(rs.getString(1))
-                                }
-                                rs.close()
-                                stmt.close()
-
-                                when {
-                                    schemas.size == 1 -> {
-                                        conn.catalog = schemas[0]
-                                    }
-                                    schemas.size > 1 -> {
-                                        return CallToolResult(
-                                            content = listOf(TextContent("Error: Table '$tableName' exists in multiple databases (${schemas.joinToString(", ")}). Please specify the database name in your query (e.g. SELECT * FROM databasename.$tableName).")),
-                                            isError = true
-                                        )
-                                    }
-                                }
-                            } catch (_: Exception) {
-                                // Proceed with query if schema scan fails
-                            }
-                        }
+                // Automatically resolve table references across multiple MySQL/MariaDB databases
+                val query = if (jdbcUrl.contains("mysql") || jdbcUrl.contains("mariadb")) {
+                    try {
+                        resolveQueryTables(conn, rawQuery)
+                    } catch (e: Exception) {
+                        return CallToolResult(
+                            content = listOf(TextContent("Database Resolution Error: ${e.message}")),
+                            isError = true
+                        )
                     }
+                } else {
+                    rawQuery
                 }
 
                 conn.createStatement().use { statement ->
