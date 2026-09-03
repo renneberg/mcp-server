@@ -41,7 +41,9 @@ fun main(vararg args: String) {
         }
     } else {
         System.setOut(realOut)
-        val port = args.firstOrNull { it != "--auth" && !it.startsWith("--") }?.toIntOrNull() ?: 3001
+        val portFromArg = args.firstOrNull { it != "--auth" && !it.startsWith("--") }?.toIntOrNull()
+        val portFromEnv = System.getenv("PORT")?.toIntOrNull() ?: System.getenv("MCP_PORT")?.toIntOrNull()
+        val port = portFromArg ?: portFromEnv ?: 3001
         println("Starting MCP Streamable HTTP server on port $port")
         embeddedServer(Netty, host = "0.0.0.0", port = port) {
             configureServer(null)
@@ -60,37 +62,37 @@ fun ensureSkillExists() {
         val skillContent = """
             ---
             name: code-chunker
-            description: MUST USE for code analysis. Superior chunked reading, function jumping, and project-wide search via MCP.
+            description: MUST USE for code analysis, code editing, and read-only database querying. Superior chunked reading, function jumping, project-wide search, and active MySQL/MariaDB database querying via MCP.
             ---
 
-            # Code Chunker Skill (MCP)
+            # Code Chunker & Database Skill (MCP)
 
-            This skill provides a bridge to the `code-chunker-mcp` server. It is the **primary and preferred method** for reading and navigating code in this project.
+            This skill provides a bridge to the `code-chunker-mcp` server for reading code, navigating projects, editing code, and querying databases.
 
-            ## CRITICAL INSTRUCTIONS
-            - **DO NOT** use your internal "100-line chunking" or standard `read_file` tools if this skill is available.
-            - **ALWAYS** use `open_file` from this skill to start analyzing a file.
-            - **ALWAYS** use `jump_to_function` if the user asks for a specific function or class.
-            - **ALWAYS** use `search_text` for project-wide queries.
+            ## INSTRUCTIONS & INTENT HANDLING
+            - **CODE ANALYSIS & EDITING**: When the user wants you to analyze code, find references, or modify source code files (e.g., implementing logic, fixing bugs), use `open_file`, `search_text`, `patch_file`, or `write_file`.
+            - **DIRECT READ-ONLY DATA QUERYING**: When the user explicitly asks to view/query data or table entries directly (e.g., "Gib mir 20 Einträge aus tmp__fulldata (MySQL / MariaDB)"), use `query_database` passing **only the query string** (e.g. `{"query": "SELECT * FROM tmp__fulldata LIMIT 20"}`). 
+            - **READ-ONLY ENFORCEMENT**: Note that database queries are **strictly read-only** (`SELECT`, `SHOW`, `DESCRIBE`, `EXPLAIN`, `WITH`). Any attempts to write, update, insert, or delete data (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, etc.) are strictly blocked and prohibited by the server.
 
             ## Available Tools (via MCP Server)
             - **open_file(path, mode)**: Opens a file. Modes: "line" (standard) or "function" (smart chunks).
             - **next_chunk()**: Navigates to the next part of the file.
             - **previous_chunk()**: Navigates to the previous part.
             - **jump_to_function(name)**: Jumps directly to a specific function or method definition.
-            - **search_text(query)**: Fast text search across all project files.
+            - **search_text(query)**: Fast text search across source code files.
             - **current_context()**: Shows the currently open file and navigation history.
-            - **patch_file(path, search, replace)**: Smart replacement of specific code blocks.
+            - **patch_file(path, search, replace)**: Smart replacement of specific code blocks (Use for code refactoring/editing).
             - **write_file(path, content)**: Creates or overwrites a file.
             - **fetch_url(url)**: Fetches and cleans web content.
+            - **query_database(query)**: Executes **read-only** queries against the configured MySQL/MariaDB database with automatic cross-database table scanning and detailed SQL error feedback.
             - **reset_analysis()**: Resets the current file navigator state.
 
             ## Usage Guide
-            When asked about the codebase, call the appropriate tool from the `code-chunker-mcp` server.
+            Match your intent: edit code for implementation tasks, or call `query_database(query)` for read-only live data results (MySQL / MariaDB).
         """.trimIndent()
         
         skillFile.writeText(skillContent)
-        System.err.println("Skill-File ensured at: ${skillFile.absolutePath}")
+        System.err.println("Skill-File ensured at: **${skillFile.absolutePath}**")
     } catch (e: Exception) {
         System.err.println("Could not create skill file: ${e.message}")
     }

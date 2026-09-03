@@ -21,6 +21,7 @@ private val resetTool = ResetTool(chunkManager, contextManager)
 private val webFetcherTool = WebFetcherTool(contextManager)
 private val writeFileTool = WriteFileTool(contextManager)
 private val patchFileTool = PatchFileTool(contextManager)
+private val queryDatabaseTool = QueryDatabaseTool(contextManager)
 
 fun createMcpServer(): Server {
     val server = Server(
@@ -157,6 +158,25 @@ fun createMcpServer(): Server {
             required = listOf("path", "search", "replace"),
         ),
     ) { request -> patchFileTool.handle(request.arguments) }
+
+    // --- DATABASE TOOLS ---
+    server.addTool(
+        name = "query_database",
+        description = "Executes a read-only SQL query against the configured MySQL/MariaDB database (credentials and connection URL are managed internally).",
+        inputSchema = ToolSchema(
+            properties = buildJsonObject {
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("description", "SQL SELECT query to execute (e.g., SELECT * FROM tmp__fulldata LIMIT 20)")
+                }
+                putJsonObject("url") {
+                    put("type", "string")
+                    put("description", "Optional override JDBC URL")
+                }
+            },
+            required = listOf("query"),
+        ),
+    ) { request -> queryDatabaseTool.handle(request.arguments) }
 
     // --- STATE TOOLS ---
     server.addTool(

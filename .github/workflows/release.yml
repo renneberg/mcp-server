@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-release:
+    name: Build Linux/macOS JAR & Debian Package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Shadow JAR
+        run: ./gradlew shadowJar
+
+      - name: Build Debian package with jpackage
+        run: |
+          sudo apt-get update && sudo apt-get install -y fakeroot
+          jpackage --type deb \
+            --name mcp-server \
+            --input build/libs \
+            --main-jar mcp-server-0.1.0-all.jar \
+            --main-class MainKt \
+            --app-version ${{ github.ref_name }} \
+            --dest dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: |
+            build/libs/*-all.jar
+            dist/*.deb
+
+  build-windows:
+    name: Build Windows Native Executable (GraalVM)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '17'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Native Executable
+        run: ./gradlew nativeCompile
+
+      - name: Upload Windows Executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-executable
+          path: build/native/nativeCompile/*.exe
+
+  release:
+    name: Create GitHub Release & Upload Assets
+    needs: [build-release, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            linux-artifacts/**/*
+            windows-executable/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
