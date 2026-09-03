@@ -82,7 +82,7 @@ tasks.register<JavaExec>("queryData") {
 }
 
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(21)
 }
 
 graalvmNative {
