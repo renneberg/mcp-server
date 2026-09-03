@@ -91,7 +91,6 @@ graalvmNative {
             imageName.set("mcp-server")
             mainClass.set("MainKt")
             buildArgs.add("--no-fallback")
-            buildArgs.add("-H:-SharedArenaSupport")
         }
     }
 }
