@@ -27,15 +27,20 @@ jobs:
       - name: Build Shadow JAR
         run: ./gradlew shadowJar
 
+      - name: Extract version without 'v' prefix
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
       - name: Build Debian package with jpackage
         run: |
           sudo apt-get update && sudo apt-get install -y fakeroot
+          mkdir -p dist
           jpackage --type deb \
             --name mcp-server \
             --input build/libs \
             --main-jar mcp-server-0.1.0-all.jar \
             --main-class MainKt \
-            --app-version ${{ github.ref_name }} \
+            --app-version ${{ steps.get_version.outputs.VERSION }} \
             --dest dist
 
       - name: Upload artifacts
